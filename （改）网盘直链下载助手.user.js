@@ -140,6 +140,11 @@
 		page: "",
 		mode: [],
 		links: [],
+		downloadDir: {
+			aria2: "",
+			bitcomet: "",
+			abdm: ""
+		},
 		glinks: [],
 		color: "",
 		request: {},
@@ -884,7 +889,7 @@
 		 * @param {Array} [headers] - 自定义请求头参数（可选）
 		 * @returns {Promise<"success"|"fail">} 发送态结果
 		 */
-		async sendLinkToAria2(link, filename, headers) {
+		async sendLinkToAria2(link, filename, headers, customDir) {
 			if (!this.sendLinkToAria2.lock) this.sendLinkToAria2.lock = Promise.resolve();
 			return this.sendLinkToAria2.lock = this.sendLinkToAria2.lock.then(async () => {
 				const list = base.getValue("setting_aria2_rpc");
@@ -897,13 +902,14 @@
 					token: selected.token
 				};
 				const url = `${rpc.domain}:${rpc.port}${rpc.path}`;
-				const dir = (rpc.dir !== null && rpc.dir !== "") ? rpc.dir : undefined;
+				const dir = (customDir !== null && customDir !== undefined) ? customDir : rpc.dir;
+				const finalDir = (dir !== null && dir !== "") ? dir : undefined;
 				const data = {
 					id: new Date().getTime(),
 					jsonrpc: "2.0",
 					method: "aria2.addUri",
 					params: [[link], {
-						dir,
+						dir: finalDir,
 						out: filename,
 						header: headers
 					}]
@@ -928,7 +934,7 @@
 		 * @param {Array} [headers] - 自定义请求头参数（可选）
 		 * @returns {Promise<"success"|"fail">} 发送态结果
 		 */
-		async sendLinkToBitcomet(link, filename, headers) {
+		async sendLinkToBitcomet(link, filename, headers, customDir) {
 			if (!this.sendLinkToBitcomet.lock) this.sendLinkToBitcomet.lock = Promise.resolve();
 			return this.sendLinkToBitcomet.lock = this.sendLinkToBitcomet.lock.then(async () => {
 				const list = base.getValue("setting_bitcomet_rpc");
@@ -943,8 +949,9 @@
 				};
 				const url = `${rpc.domain}:${rpc.port}${rpc.path}`;
 				const data = new URLSearchParams();
+				const dir = (customDir !== null && customDir !== undefined) ? customDir : rpc.dir;
 				data.append("url", link);
-				if (rpc.dir !== null && rpc.dir !== "") data.append("save_path", rpc.dir);
+				if (dir !== null && dir !== "") data.append("save_path", dir);
 				data.append("file_name", filename);
 				data.append("connection", 200);
 				if (headers && base.isType(headers) === "object") {
@@ -980,7 +987,7 @@
 		 * @param {Array} [headers] - 自定义请求头参数（可选）
 		 * @returns {Promise<"success"|"fail">} 发送态结果
 		 */
-		async sendLinkToABDM(link, filename, headers) {
+		async sendLinkToABDM(link, filename, headers, customDir) {
 			if (!this.sendLinkToABDM.lock) this.sendLinkToABDM.lock = Promise.resolve();
 			return this.sendLinkToABDM.lock = this.sendLinkToABDM.lock.then(async () => {
 				headers = this.standHeaders(headers);
@@ -1002,7 +1009,8 @@
 					"name": filename
 				}
 				if (headers["Referer"]) data["downloadSource"]["downloadPage"] = headers["Referer"];
-				if (rpc.dir) data.folder = rpc.dir;
+				const dir = (customDir !== null && customDir !== undefined) ? customDir : rpc.dir;
+				if (dir) data.folder = dir;
 				try {
 					const res = await base.post(url, data, { "Content-Type": "text/plain;charset=UTF-8" }, "text", false);
 					if (res === "OK") return "success";
@@ -3421,19 +3429,58 @@
 				if (list.length >= 2) content.find(".pl-extra").append(`<button class="pl-btn-primary curl listener-copy listener-tip" data-copy='${allLink}' data-title="点击复制全部 curl 命令行"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-copy"/></svg>复制全部命令行</button>`);
 			} else if (temp.mode === "aria2") {
 				const rpc = base.getValue("setting_aria2_rpc").find(i => i.default);
-				content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-warning aria2 listener-open-aria2-setting listener-tip" data-title="${rpc.domain + ":" + rpc.port + rpc.path}" data-back-to-downloads="true"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-gear"/></svg>修改服务参数</button>`);
-				content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-success aria2 listener-rpc-task youxiaohou listener-tip" data-title="访问原作者的 Aria2 管理页面以查看下载任务，功能较少"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-list-check"/></svg>查看任务 (油小猴)</button>`);
-				content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-success aria2 listener-rpc-task ariang listener-tip" data-title="访问 AriaNg 的官方 Demo 以查看下载任务，功能较多"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-list-check"/></svg>查看任务 (AriaNg)</button>`);
-				if (list.length >= 2) content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-default aria2 listener-send-rpc" data-type="aria2"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-cloud-arrow-up"/></svg>全部推送至下载器</button>`);
-				if (list.length >= 2) content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-info aria2 listener-copy listener-tip" data-copy='${allLink}' data-title="Aria2 没启用 RPC？点击复制 aria2c 命令行手动下载"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-copy"/></svg>复制全部命令行</button>`);
+				if (base.isCustomDownloadDirSupported()) {
+					content.find(".pl-extra").append(`<div class="pl-extra-row pl-download-dir-row">
+						<div class="pl-download-dir" style="margin-bottom:8px;text-align:left;">
+							<div style="margin-bottom:6px;font-size:13px;font-weight:600;">下载目录</div>
+							<input type="text" class="swal2-input pl-input listener-download-dir-input" data-type="aria2" placeholder="直接指定发送到下载器时的保存目录，留空则使用当前 RPC 默认目录" value="${temp.downloadDir.aria2 || ""}" style="width:100%;margin:0;">
+						</div>
+					</div>`);
+					content.find(".pl-extra").append(`<div class="pl-extra-row pl-extra-actions aria2-actions"></div>`);
+					content.find(".pl-extra .aria2-actions").append(`<button class="pl-btn-primary pl-btn-warning aria2 listener-open-aria2-setting listener-tip" data-title="${rpc.domain + ":" + rpc.port + rpc.path}" data-back-to-downloads="true"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-gear"/></svg>修改服务参数</button>`);
+					content.find(".pl-extra .aria2-actions").append(`<button class="pl-btn-primary pl-btn-success aria2 listener-rpc-task youxiaohou listener-tip" data-title="访问原作者的 Aria2 管理页面以查看下载任务，功能较少"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-list-check"/></svg>查看任务 (油小猴)</button>`);
+					content.find(".pl-extra .aria2-actions").append(`<button class="pl-btn-primary pl-btn-success aria2 listener-rpc-task ariang listener-tip" data-title="访问 AriaNg 的官方 Demo 以查看下载任务，功能较多"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-list-check"/></svg>查看任务 (AriaNg)</button>`);
+					if (list.length >= 2) content.find(".pl-extra .aria2-actions").append(`<button class="pl-btn-primary pl-btn-default aria2 listener-send-rpc" data-type="aria2"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-cloud-arrow-up"/></svg>全部推送至下载器</button>`);
+					if (list.length >= 2) content.find(".pl-extra .aria2-actions").append(`<button class="pl-btn-primary pl-btn-info aria2 listener-copy listener-tip" data-copy='${allLink}' data-title="Aria2 没启用 RPC？点击复制 aria2c 命令行手动下载"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-copy"/></svg>复制全部命令行</button>`);
+				} else {
+					content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-warning aria2 listener-open-aria2-setting listener-tip" data-title="${rpc.domain + ":" + rpc.port + rpc.path}" data-back-to-downloads="true"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-gear"/></svg>修改服务参数</button>`);
+					content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-success aria2 listener-rpc-task youxiaohou listener-tip" data-title="访问原作者的 Aria2 管理页面以查看下载任务，功能较少"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-list-check"/></svg>查看任务 (油小猴)</button>`);
+					content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-success aria2 listener-rpc-task ariang listener-tip" data-title="访问 AriaNg 的官方 Demo 以查看下载任务，功能较多"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-list-check"/></svg>查看任务 (AriaNg)</button>`);
+					if (list.length >= 2) content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-default aria2 listener-send-rpc" data-type="aria2"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-cloud-arrow-up"/></svg>全部推送至下载器</button>`);
+					if (list.length >= 2) content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-info aria2 listener-copy listener-tip" data-copy='${allLink}' data-title="Aria2 没启用 RPC？点击复制 aria2c 命令行手动下载"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-copy"/></svg>复制全部命令行</button>`);
+				}
 			} else if (temp.mode === "bitcomet") {
 				const rpc = base.getValue("setting_bitcomet_rpc").find(i => i.default);
-				content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-warning bitcomet listener-open-bitcomet-setting listener-tip" data-title="${rpc.domain + ":" + rpc.port + rpc.path}" data-back-to-downloads="true"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-gear"/></svg>修改服务参数</button>`);
-				if (list.length >= 2) content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-default bitcomet listener-copy listener-tip" data-copy='${allLink}' data-title="点击复制全部 BC 链接"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-copy"/></svg>复制全部 BC 链接</button>`);
-				if (list.length >= 2) content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-info bitcomet listener-send-rpc listener-tip" data-type="bitcomet" data-title="除非 BC 链接无法调起比特彗星，否则不建议使用此方式<br/><br/>由于比特彗星内置的远程下载 Web API 服务代码存在缺陷，请求可能会随机出现“发送失败 - 服务器返回空请求”错误，实际上客户端已成功开始下载<br/>由于脚本无法准确判断请求是否真正成功，即使出现错误，也会提示“成功”"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-cloud-arrow-up"/></svg>全部推送至下载器</button>`);
+				if (base.isCustomDownloadDirSupported()) {
+					content.find(".pl-extra").append(`<div class="pl-extra-row pl-download-dir-row">
+						<div class="pl-download-dir" style="margin-bottom:8px;text-align:left;">
+							<div style="margin-bottom:6px;font-size:13px;font-weight:600;">下载目录</div>
+							<input type="text" class="swal2-input pl-input listener-download-dir-input" data-type="bitcomet" placeholder="直接指定发送到下载器时的保存目录，留空则使用当前 RPC 默认目录" value="${temp.downloadDir.bitcomet || ""}" style="width:100%;margin:0;">
+						</div>
+					</div>`);
+					content.find(".pl-extra").append(`<div class="pl-extra-row pl-extra-actions bitcomet-actions"></div>`);
+					content.find(".pl-extra .bitcomet-actions").append(`<button class="pl-btn-primary pl-btn-warning bitcomet listener-open-bitcomet-setting listener-tip" data-title="${rpc.domain + ":" + rpc.port + rpc.path}" data-back-to-downloads="true"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-gear"/></svg>修改服务参数</button>`);
+					if (list.length >= 2) content.find(".pl-extra .bitcomet-actions").append(`<button class="pl-btn-primary pl-btn-default bitcomet listener-copy listener-tip" data-copy='${allLink}' data-title="点击复制全部 BC 链接"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-copy"/></svg>复制全部 BC 链接</button>`);
+					if (list.length >= 2) content.find(".pl-extra .bitcomet-actions").append(`<button class="pl-btn-primary pl-btn-info bitcomet listener-send-rpc listener-tip" data-type="bitcomet" data-title="除非 BC 链接无法调起比特彗星，否则不建议使用此方式<br/><br/>由于比特彗星内置的远程下载 Web API 服务代码存在缺陷，请求可能会随机出现“发送失败 - 服务器返回空请求”错误，实际上客户端已成功开始下载<br/>由于脚本无法准确判断请求是否真正成功，即使出现错误，也会提示“成功”"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-cloud-arrow-up"/></svg>全部推送至下载器</button>`);
+				} else {
+					content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-warning bitcomet listener-open-bitcomet-setting listener-tip" data-title="${rpc.domain + ":" + rpc.port + rpc.path}" data-back-to-downloads="true"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-gear"/></svg>修改服务参数</button>`);
+					if (list.length >= 2) content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-default bitcomet listener-copy listener-tip" data-copy='${allLink}' data-title="点击复制全部 BC 链接"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-copy"/></svg>复制全部 BC 链接</button>`);
+					if (list.length >= 2) content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-info bitcomet listener-send-rpc listener-tip" data-type="bitcomet" data-title="除非 BC 链接无法调起比特彗星，否则不建议使用此方式<br/><br/>由于比特彗星内置的远程下载 Web API 服务代码存在缺陷，请求可能会随机出现“发送失败 - 服务器返回空请求”错误，实际上客户端已成功开始下载<br/>由于脚本无法准确判断请求是否真正成功，即使出现错误，也会提示“成功”"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-cloud-arrow-up"/></svg>全部推送至下载器</button>`);
+				}
 			} else if (temp.mode === "abdm") {
 				const rpc = base.getValue("setting_abdm_rpc").find(i => i.default);
-				content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-warning abdm listener-open-abdm-setting listener-tip" data-title="${rpc.domain + ":" + rpc.port}" data-back-to-downloads="true"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-gear"/></svg>修改服务参数</button>`);
+				if (base.isCustomDownloadDirSupported()) {
+					content.find(".pl-extra").append(`<div class="pl-extra-row pl-download-dir-row">
+						<div class="pl-download-dir" style="margin-bottom:8px;text-align:left;">
+							<div style="margin-bottom:6px;font-size:13px;font-weight:600;">下载目录</div>
+							<input type="text" class="swal2-input pl-input listener-download-dir-input" data-type="abdm" placeholder="直接指定发送到下载器时的保存目录，留空则使用当前 RPC 默认目录" value="${temp.downloadDir.abdm || ""}" style="width:100%;margin:0;">
+						</div>
+					</div>`);
+					content.find(".pl-extra").append(`<div class="pl-extra-row pl-extra-actions abdm-actions"></div>`);
+					content.find(".pl-extra .abdm-actions").append(`<button class="pl-btn-primary pl-btn-warning abdm listener-open-abdm-setting listener-tip" data-title="${rpc.domain + ":" + rpc.port}" data-back-to-downloads="true"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-gear"/></svg>修改服务参数</button>`);
+				} else {
+					content.find(".pl-extra").append(`<button class="pl-btn-primary pl-btn-warning abdm listener-open-abdm-setting listener-tip" data-title="${rpc.domain + ":" + rpc.port}" data-back-to-downloads="true"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-gear"/></svg>修改服务参数</button>`);
+				}
 			}
 			function updateTooltip($element, value) {
 				if (!value) return;
@@ -3597,6 +3644,7 @@
 			$doc.on("click", ".listener-send-rpc", async function (e) {
 				const target = $(e.currentTarget);
 				const originalHtml = target.html();
+				base.getCustomDownloadDir(target.data("type"));
 				$(`.listener-${target.data("type")}-download`).each((index, element) => {
 					if ($(element).attr("data-processing") !== "true") {
 						$(element).click();
@@ -3619,6 +3667,10 @@
 					target.css("opacity", "");
 					target.html(originalHtml);
 				}
+			});
+			$doc.on("input change", ".listener-download-dir-input", function () {
+				const element = $(this);
+				temp.downloadDir[element.data("type")] = String(element.val() || "").trim();
 			});
 			$doc.on("click", ".listener-rpc-task.youxiaohou", function () {
 				const rpc = base.getValue("setting_aria2_rpc").find(i => i.default);
@@ -4162,6 +4214,11 @@ a.pl-item-link:hover {
 	padding: 8px 6px
 }
 
+.pl-extra:has(>.pl-extra-row) {
+	flex-direction: column;
+	align-items: stretch;
+}
+
 .pl-extra>.api.listener-download-all,
 .pl-extra>.curl.listener-copy,
 .pl-extra>.aria2.listener-send-rpc,
@@ -4170,8 +4227,23 @@ a.pl-item-link:hover {
 	flex: 1
 }
 
-.pl-extra:not(:has(>.api.listener-download-all, >.curl.listener-copy, >.idm.listener-send-rpc, >.aria2.listener-send-rpc, >.bitcomet.listener-copy, >.abdm))>* {
+.pl-extra:not(:has(>.pl-extra-row)):not(:has(>.api.listener-download-all, >.curl.listener-copy, >.idm.listener-send-rpc, >.aria2.listener-send-rpc, >.bitcomet.listener-copy, >.abdm))>* {
 	flex: 1
+}
+
+.pl-extra-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.pl-download-dir-row {
+	flex-direction: column;
+	align-items: stretch;
+}
+
+.pl-extra-actions {
+	flex-wrap: wrap;
 }
 
 .pl-btn-primary {
@@ -4954,6 +5026,19 @@ button.downloadSubtitle:disabled {
 				link_message: item.find(".pl-item-message"),
 				link_copy: item.find(".pl-item-copy"),
 			};
+		},
+
+		isCustomDownloadDirSupported() {
+			return /pan\.quark\.cn/.test(location.host) && ["aria2", "bitcomet", "abdm"].includes(temp.mode);
+		},
+
+		getCustomDownloadDir(mode = temp.mode) {
+			if (!this.isCustomDownloadDirSupported() || !mode) return undefined;
+			const input = $doc.find(`.listener-download-dir-input[data-type="${mode}"]`);
+			const value = (input.length ? input.val() : temp.downloadDir[mode]) || "";
+			const dir = String(value).trim();
+			temp.downloadDir[mode] = dir;
+			return dir;
 		}
 	};
 
@@ -8166,10 +8251,11 @@ button.downloadSubtitle:disabled {
 				if (target.attr("data-processing") === "true") return;
 				target.attr("data-processing", "true");
 				const originalHtml = target.html();
+				const customDir = base.getCustomDownloadDir("aria2");
 				target.find(".pl-icon").remove();
 				target.find(".pl-loading").remove();
 				target.prepend(base.createLoading());
-				const res = await base.sendLinkToAria2(target.data("link"), target.data("filename"), [`User-Agent:${config.$quark.api.ua.downloadLink}`, `Referer:https://${location.host}/`, `Cookie:${document.cookie}`]);
+				const res = await base.sendLinkToAria2(target.data("link"), target.data("filename"), [`User-Agent:${config.$quark.api.ua.downloadLink}`, `Referer:https://${location.host}/`, `Cookie:${document.cookie}`], customDir);
 				if (res === "success") {
 					target.removeClass("pl-btn-danger").html("发送成功啦!快去看看吧~").animate({ opacity: "0.5" }, "slow");
 				} else {
@@ -8183,10 +8269,11 @@ button.downloadSubtitle:disabled {
 				if (target.attr("data-processing") === "true") return;
 				target.attr("data-processing", "true");
 				const originalHtml = target.html();
+				const customDir = base.getCustomDownloadDir("bitcomet");
 				target.find(".pl-icon").remove();
 				target.find(".pl-loading").remove();
 				target.prepend(base.createLoading());
-				const res = await base.sendLinkToBitcomet(target.data("link"), target.data("filename"), { "user_agent": config.$quark.api.ua.downloadLink, "referrer": `https://${location.host}/`, "cookie": document.cookie });
+				const res = await base.sendLinkToBitcomet(target.data("link"), target.data("filename"), { "user_agent": config.$quark.api.ua.downloadLink, "referrer": `https://${location.host}/`, "cookie": document.cookie }, customDir);
 				if (res === "success") {
 					target.removeClass("pl-btn-danger").html("发送成功啦!快去看看吧~").animate({ opacity: "0.5" }, "slow");
 				} else {
@@ -8200,10 +8287,11 @@ button.downloadSubtitle:disabled {
 				if (target.attr("data-processing") === "true") return;
 				target.attr("data-processing", "true");
 				const originalHtml = target.html();
+				const customDir = base.getCustomDownloadDir("abdm");
 				target.find(".pl-icon").remove();
 				target.find(".pl-loading").remove();
 				target.prepend(base.createLoading());
-				const res = await base.sendLinkToABDM(target.data("link"), target.data("filename"), { "User-Agent": config.$quark.api.ua.downloadLink, "Cookie": document.cookie });
+				const res = await base.sendLinkToABDM(target.data("link"), target.data("filename"), { "User-Agent": config.$quark.api.ua.downloadLink, "Cookie": document.cookie }, customDir);
 				if (res === "success") {
 					target.removeClass("pl-btn-danger").html("发送成功啦!快去看看吧~").animate({ opacity: "0.5" }, "slow");
 				} else {
