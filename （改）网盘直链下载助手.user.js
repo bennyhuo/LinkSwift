@@ -388,14 +388,16 @@
 				normal: `+<br/>此方式的下载请求<b>可能会</b>被 IDM 捕获。`
 			}
 		},
-		$quark: {
-			// 没想到啊没想到，矮子里面挑高个，竟是还有些良心
-			api: {
-				ua: {
-					downloadLink: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/3.20.0 Chrome/112.0.5615.165 Electron/24.1.3.8 Safari/537.36 Channel/pckk_other_ch"
+			$quark: {
+				// 没想到啊没想到，矮子里面挑高个，竟是还有些良心
+				api: {
+					ua: {
+						downloadLink: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/3.20.0 Chrome/112.0.5615.165 Electron/24.1.3.8 Safari/537.36 Channel/pckk_other_ch"
+					},
+					getLink: "https://drive-pc.quark.cn/1/clouddrive/file/download?entry=ft&fr=pc&pr=ucpro",
+					getList: "https://drive-pc.quark.cn/1/clouddrive/file/sort?pr=ucpro&fr=pc&uc_param_str=",
+					getShareList: "https://drive-h.quark.cn/1/clouddrive/share/sharepage/detail?pr=ucpro&fr=pc&uc_param_str="
 				},
-				getLink: "https://drive-pc.quark.cn/1/clouddrive/file/download?entry=ft&fr=pc&pr=ucpro"
-			},
 			mount: {
 				home: ".btn-operate .btn-main",
 				share: ".share-btns"
@@ -662,6 +664,20 @@
 			return "";
 		},
 
+		sizeFormatSimple(value = 0) {
+			try { value = Number(value) } catch { }
+			if (!Number.isFinite(value) || value < 0) return "";
+			const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+			let size = value;
+			let index = 0;
+			while (size >= 1024 && index < units.length - 1) {
+				size /= 1024;
+				index++;
+			}
+			const fixed = size >= 100 || index === 0 ? size.toFixed(0) : size.toFixed(2);
+			return `${fixed}${units[index]}`;
+		},
+
 		/**
 		 * 将剩余时间（秒）格式化为可读的时间字符串
 		 *
@@ -731,6 +747,22 @@
 		fixFilename(name) {
 			const replace = /[!?&|`"'*\/:<>\\]/g
 			return name.replace(replace, "_");
+		},
+
+		fixPathname(path) {
+			if (!path) return "";
+			return String(path).split(/[\\/]+/).map(part => this.fixFilename(part)).filter(Boolean).join("/");
+		},
+
+		joinDownloadDir(baseDir = "", subDir = "") {
+			const safeSubDir = this.fixPathname(subDir);
+			if (!safeSubDir) return baseDir || "";
+			const normalizedBase = String(baseDir || "").trim();
+			if (!normalizedBase) return safeSubDir;
+			const separator = /\\/.test(normalizedBase) && !/\//.test(normalizedBase) ? "\\" : "/";
+			const base = normalizedBase.replace(/[\\/]+$/, "");
+			const relative = safeSubDir.replace(/[\\/]+/g, separator);
+			return `${base}${separator}${relative}`;
 		},
 
 		/**
@@ -889,7 +921,7 @@
 		 * @param {Array} [headers] - 自定义请求头参数（可选）
 		 * @returns {Promise<"success"|"fail">} 发送态结果
 		 */
-		async sendLinkToAria2(link, filename, headers, customDir) {
+		async sendLinkToAria2(link, filename, headers, customDir, subDir = "") {
 			if (!this.sendLinkToAria2.lock) this.sendLinkToAria2.lock = Promise.resolve();
 			return this.sendLinkToAria2.lock = this.sendLinkToAria2.lock.then(async () => {
 				const list = base.getValue("setting_aria2_rpc");
@@ -902,7 +934,7 @@
 					token: selected.token
 				};
 				const url = `${rpc.domain}:${rpc.port}${rpc.path}`;
-				const dir = (customDir !== null && customDir !== undefined) ? customDir : rpc.dir;
+				const dir = base.joinDownloadDir((customDir !== null && customDir !== undefined) ? customDir : rpc.dir, subDir);
 				const finalDir = (dir !== null && dir !== "") ? dir : undefined;
 				const data = {
 					id: new Date().getTime(),
@@ -934,7 +966,7 @@
 		 * @param {Array} [headers] - 自定义请求头参数（可选）
 		 * @returns {Promise<"success"|"fail">} 发送态结果
 		 */
-		async sendLinkToBitcomet(link, filename, headers, customDir) {
+		async sendLinkToBitcomet(link, filename, headers, customDir, subDir = "") {
 			if (!this.sendLinkToBitcomet.lock) this.sendLinkToBitcomet.lock = Promise.resolve();
 			return this.sendLinkToBitcomet.lock = this.sendLinkToBitcomet.lock.then(async () => {
 				const list = base.getValue("setting_bitcomet_rpc");
@@ -949,7 +981,7 @@
 				};
 				const url = `${rpc.domain}:${rpc.port}${rpc.path}`;
 				const data = new URLSearchParams();
-				const dir = (customDir !== null && customDir !== undefined) ? customDir : rpc.dir;
+				const dir = base.joinDownloadDir((customDir !== null && customDir !== undefined) ? customDir : rpc.dir, subDir);
 				data.append("url", link);
 				if (dir !== null && dir !== "") data.append("save_path", dir);
 				data.append("file_name", filename);
@@ -987,7 +1019,7 @@
 		 * @param {Array} [headers] - 自定义请求头参数（可选）
 		 * @returns {Promise<"success"|"fail">} 发送态结果
 		 */
-		async sendLinkToABDM(link, filename, headers, customDir) {
+		async sendLinkToABDM(link, filename, headers, customDir, subDir = "") {
 			if (!this.sendLinkToABDM.lock) this.sendLinkToABDM.lock = Promise.resolve();
 			return this.sendLinkToABDM.lock = this.sendLinkToABDM.lock.then(async () => {
 				headers = this.standHeaders(headers);
@@ -1009,7 +1041,7 @@
 					"name": filename
 				}
 				if (headers["Referer"]) data["downloadSource"]["downloadPage"] = headers["Referer"];
-				const dir = (customDir !== null && customDir !== undefined) ? customDir : rpc.dir;
+				const dir = base.joinDownloadDir((customDir !== null && customDir !== undefined) ? customDir : rpc.dir, subDir);
 				if (dir) data.folder = dir;
 				try {
 					const res = await base.post(url, data, { "Content-Type": "text/plain;charset=UTF-8" }, "text", false);
@@ -3344,31 +3376,35 @@
 				getFileName,
 				getFileSize,
 				getFileLink,
+				getFilePath,
 				getFileMirror,
 				convert = {},
 				tooltip = {}
 			} = (base.isType(configs[1]) === "object" ? configs[1] : {});
 			const content = $(`<div><div class="pl-main"></div><div class="pl-extra"></div></div>`);
 			let allLink = [];
-			list.forEach((v, i) => {
-				i = i + 1;
-				if (isFolder(v)) return;
-				const filename = getFileName(v);
-				const size = getFileSize(v);
-				const dlink = getFileLink(v);
-				const mirror = base.isType(getFileMirror) !== "undefined" ? getFileMirror(getFileLink(v)) : undefined;
-				if (!dlink || !dlink.includes("http")) {
-					content.find(".pl-main").append(`<div class="pl-item">
-						<div class="pl-item-name listener-tip" data-size="${size}"><div class="name">${filename}</div><div class="size">${base.sizeFormat(size)}</div></div>
-						<div class="pl-item-message">${dlink ? dlink : "获取下载链接失败，刷新网页后再试试吧~"}</div>
-					</div>`)
-				} else {
-					if (temp.mode === "api") {
-						allLink.push(dlink);
-						content.find(".pl-main").append(`<div class="pl-item" data-index="${i}" data-link="${dlink}" data-name="${filename}" data-size="${size}">
-							<div class="pl-item-name listener-tip"><div class="name">${filename}</div><div class="size">${base.sizeFormat(size)}</div></div>
-							<button class="pl-item-link pl-btn-primary pl-btn-default listener-api-download enhance listener-tip" data-title="通过脚本跨域请求下载文件，已支持多线程、智能多分片，显示预估剩余时间、下载速度；<br/>具体线程取决于浏览器的限制，所以非<b>必要情况（例如系统环境无法安装程序）</b>下，不建议使用此功能!"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-downward"/></svg>增强下载 (Beta)</button>
-							<button class="pl-item-link pl-btn-primary pl-btn-info listener-api-download normal listener-tip" data-link="${dlink}" data-filename="${filename}" data-title="通过浏览器访问链接下载文件，适用于支持 iframe 的浏览器<br/>点击后需等待浏览器弹出提示才可点击下个下载，否则只会下载后者"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-downward"/></svg>直接下载</button>
+				list.forEach((v, i) => {
+					i = i + 1;
+					if (isFolder(v)) return;
+					const filename = getFileName(v);
+					const size = getFileSize(v);
+					const dlink = getFileLink(v);
+					const saveDir = base.isType(getFilePath) !== "undefined" ? (getFilePath(v) || "") : "";
+					const pathText = saveDir ? `<div class="path">${saveDir}</div>` : "";
+					const metaText = `<div class="meta">${pathText}<div class="info"><div class="name">${filename}</div><div class="size">${base.sizeFormatSimple(size)}</div></div></div>`;
+					const mirror = base.isType(getFileMirror) !== "undefined" ? getFileMirror(getFileLink(v)) : undefined;
+					if (!dlink || !dlink.includes("http")) {
+						content.find(".pl-main").append(`<div class="pl-item">
+							<div class="pl-item-name listener-tip" data-size="${size}">${metaText}</div>
+							<div class="pl-item-message">${dlink ? dlink : "获取下载链接失败，刷新网页后再试试吧~"}</div>
+						</div>`)
+					} else {
+						if (temp.mode === "api") {
+							allLink.push(dlink);
+							content.find(".pl-main").append(`<div class="pl-item" data-index="${i}" data-link="${dlink}" data-name="${filename}" data-size="${size}">
+								<div class="pl-item-name listener-tip">${metaText}</div>
+								<button class="pl-item-link pl-btn-primary pl-btn-default listener-api-download enhance listener-tip" data-title="通过脚本跨域请求下载文件，已支持多线程、智能多分片，显示预估剩余时间、下载速度；<br/>具体线程取决于浏览器的限制，所以非<b>必要情况（例如系统环境无法安装程序）</b>下，不建议使用此功能!"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-downward"/></svg>增强下载 (Beta)</button>
+								<button class="pl-item-link pl-btn-primary pl-btn-info listener-api-download normal listener-tip" data-link="${dlink}" data-filename="${filename}" data-title="通过浏览器访问链接下载文件，适用于支持 iframe 的浏览器<br/>点击后需等待浏览器弹出提示才可点击下个下载，否则只会下载后者"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-downward"/></svg>直接下载</button>
 							<button class="pl-btn-primary pl-btn-default listener-idm-download listener-tip" data-filename="${filename}" data-filesize="${size}" data-link="${dlink}" data-title="通过 IDM 扩展的捕获协议，将链接推送至 IDM，理论上仅适用于版本较新的 IDM。"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-cloud-arrow-up"/></svg><span>推送至 IDM (Beta)</span></button>
 							<button class="pl-item-copy pl-btn-primary pl-btn-success listener-copy listener-tip" data-copy='${filename}' data-title="点击复制文件名"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-copy"/></svg>复制名称</button>
 							<button class="pl-item-copy pl-btn-primary pl-btn-warning listener-copy copy listener-tip" data-copy='${dlink}' data-title="点击复制下载链接"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-copy"/></svg>复制链接</button>
@@ -3382,39 +3418,39 @@
 							</div>
 						</div>`);
 					}
-					if (temp.mode === "curl") {
-						const finalink = base.convertLinkToCurl(dlink, filename, convert?.curl);
-						allLink.push(finalink);
-						content.find(".pl-main").append(`<div class="pl-item">
-							<div class="pl-item-name listener-tip" data-size="${size}"><div class="name">${filename}</div><div class="size">${base.sizeFormat(size)}</div></div>
-							<a class="pl-item-link listener-copy listener-tip" data-copy='${finalink}' data-title="点击复制 curl 命令行">${finalink}<br/><svg class="pl-icon"><use xlink:href="#pl-icon-fa-copy"/></svg>复制 ${filename} 下载命令行</a>
-						</div>`);
-					}
-					if (temp.mode === "aria2") {
-						const finalink = base.convertLinkToAria2(dlink, filename, convert?.aria2);
-						allLink.push(finalink);
-						content.find(".pl-main").append(`<div class="pl-item">
-							<div class="pl-item-name listener-tip" data-size="${size}"><div class="name">${filename}</div><div class="size">${base.sizeFormat(size)}</div></div>
-							<button class="pl-item-link pl-btn-primary pl-btn-default listener-aria2-download" data-filename="${filename}" data-link="${dlink}"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-cloud-arrow-up"/></svg><span>推送链接到 Aria2 下载器</span></button>
-							<button class="pl-btn-primary pl-btn-info listener-copy listener-tip" data-copy='${finalink}' data-title="Aria2 没启用 RPC？点击复制 aria2c 命令行手动下载"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-copy"/></svg>复制下载命令行</button>
-						</div>`);
-					}
-					if (temp.mode === "bitcomet") {
-						const finalink = base.convertLinkToBitComet(dlink, filename, convert?.bitcomet);
-						allLink.push(finalink);
-						content.find(".pl-main").append(`<div class="pl-item">
-							<div class="pl-item-name listener-tip" data-size="${size}"><div class="name">${filename}</div><div class="size">${base.sizeFormat(size)}</div></div>
-							<a class="pl-item-link pl-btn-primary pl-btn-default listener-tip" href="${finalink}" data-title="点击打开 BC 链接以手动调起比特彗星下载，右键可复制 BC 链接"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-downward"/></svg>使用 BC 链接下载</a>
-							${mirror ? `<button class="pl-btn-primary pl-btn-success listener-copy listener-tip" data-copy='${mirror}' data-title="点击复制镜像地址"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-copy"/></svg>复制镜像</a>` : ""}
-							<button class="pl-btn-primary pl-btn-info listener-bitcomet-download listener-tip" data-filename="${filename}" data-link="${dlink}" data-title="除非 BC 链接无法调起比特彗星，否则不建议使用此方式<br/><br/>由于比特彗星内置的远程下载 Web API 服务代码存在缺陷，请求可能会随机出现“发送失败 - 服务器返回空请求”错误，实际上客户端已成功开始下载<br/>由于脚本无法准确判断请求是否真正成功，即使出现错误，也会提示“成功”"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-cloud-arrow-up"/></svg><span>推送至下载器</span></button>
-						</div>`);
-					}
-					if (temp.mode === "abdm") {
-						content.find(".pl-main").append(`<div class="pl-item">
-							<div class="pl-item-name listener-tip" data-size="${size}"><div class="name">${filename}</div><div class="size">${base.sizeFormat(size)}</div></div>
-							<button class="pl-item-link pl-btn-primary pl-btn-default listener-abdm-download slient" data-filename="${filename}" data-link="${dlink}"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-cloud-arrow-up"/></svg><span>推送链接到 ABDM 下载器</span></button>
-						</div>`);
-					}
+						if (temp.mode === "curl") {
+							const finalink = base.convertLinkToCurl(dlink, filename, convert?.curl);
+							allLink.push(finalink);
+							content.find(".pl-main").append(`<div class="pl-item">
+								<div class="pl-item-name listener-tip" data-size="${size}">${metaText}</div>
+								<a class="pl-item-link listener-copy listener-tip" data-copy='${finalink}' data-title="点击复制 curl 命令行">${finalink}<br/><svg class="pl-icon"><use xlink:href="#pl-icon-fa-copy"/></svg>复制 ${filename} 下载命令行</a>
+							</div>`);
+						}
+						if (temp.mode === "aria2") {
+							const finalink = base.convertLinkToAria2(dlink, filename, convert?.aria2);
+							allLink.push(finalink);
+							content.find(".pl-main").append(`<div class="pl-item">
+								<div class="pl-item-name listener-tip" data-size="${size}">${metaText}</div>
+								<button class="pl-item-link pl-btn-primary pl-btn-default listener-aria2-download" data-filename="${filename}" data-link="${dlink}" data-savedir="${saveDir}"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-cloud-arrow-up"/></svg><span>推送链接到 Aria2 下载器</span></button>
+								<button class="pl-btn-primary pl-btn-info listener-copy listener-tip" data-copy='${finalink}' data-title="Aria2 没启用 RPC？点击复制 aria2c 命令行手动下载"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-copy"/></svg>复制下载命令行</button>
+							</div>`);
+						}
+						if (temp.mode === "bitcomet") {
+							const finalink = base.convertLinkToBitComet(dlink, filename, convert?.bitcomet);
+							allLink.push(finalink);
+							content.find(".pl-main").append(`<div class="pl-item">
+								<div class="pl-item-name listener-tip" data-size="${size}">${metaText}</div>
+								<a class="pl-item-link pl-btn-primary pl-btn-default listener-tip" href="${finalink}" data-title="点击打开 BC 链接以手动调起比特彗星下载，右键可复制 BC 链接"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-downward"/></svg>使用 BC 链接下载</a>
+								${mirror ? `<button class="pl-btn-primary pl-btn-success listener-copy listener-tip" data-copy='${mirror}' data-title="点击复制镜像地址"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-copy"/></svg>复制镜像</a>` : ""}
+								<button class="pl-btn-primary pl-btn-info listener-bitcomet-download listener-tip" data-filename="${filename}" data-link="${dlink}" data-savedir="${saveDir}" data-title="除非 BC 链接无法调起比特彗星，否则不建议使用此方式<br/><br/>由于比特彗星内置的远程下载 Web API 服务代码存在缺陷，请求可能会随机出现“发送失败 - 服务器返回空请求”错误，实际上客户端已成功开始下载<br/>由于脚本无法准确判断请求是否真正成功，即使出现错误，也会提示“成功”"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-cloud-arrow-up"/></svg><span>推送至下载器</span></button>
+							</div>`);
+						}
+						if (temp.mode === "abdm") {
+							content.find(".pl-main").append(`<div class="pl-item">
+								<div class="pl-item-name listener-tip" data-size="${size}">${metaText}</div>
+								<button class="pl-item-link pl-btn-primary pl-btn-default listener-abdm-download slient" data-filename="${filename}" data-link="${dlink}" data-savedir="${saveDir}"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-cloud-arrow-up"/></svg><span>推送链接到 ABDM 下载器</span></button>
+							</div>`);
+						}
 				}
 			});
 			allLink = (allLink ? allLink.join("\r\n") : "")
@@ -4045,23 +4081,59 @@ body.swal2-shown:not(.swal2-no-backdrop, .swal2-toast-shown) ::-webkit-scrollbar
 }
 
 .pl-item-name {
-	width: 15%;
+	flex: 1;
+	min-width: 0;
 	overflow: hidden;
 	text-align: left;
-	white-space: nowrap;
 	text-overflow: ellipsis;
 	cursor: default
 }
 
-.pl-item-name>* {
+.pl-item-name .meta {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0
+}
+
+.pl-item-name .path {
 	overflow: hidden;
-	text-align: left;
-	white-space: nowrap;
-	text-overflow: ellipsis
+	color: var(--pl-c-6);
+	font-size: 11px;
+	text-overflow: ellipsis;
+	white-space: nowrap
+}
+
+.pl-item-name .path::before {
+	content: "› ";
+	opacity: 0.7
+}
+
+.pl-item-name .info {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 0
+}
+
+.pl-item-name .name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	font-weight: 600;
+	text-overflow: ellipsis;
+	white-space: nowrap
+}
+
+.pl-item-name .size {
+	flex: 0 0 auto;
+	color: var(--pl-c-6);
+	font-size: 12px;
+	white-space: nowrap
 }
 
 .pl-item-link {
-	flex: 1;
+	flex: 0 0 auto;
 	cursor: pointer
 }
 
@@ -8252,10 +8324,11 @@ button.downloadSubtitle:disabled {
 				target.attr("data-processing", "true");
 				const originalHtml = target.html();
 				const customDir = base.getCustomDownloadDir("aria2");
+				const saveDir = target.data("savedir") || "";
 				target.find(".pl-icon").remove();
 				target.find(".pl-loading").remove();
 				target.prepend(base.createLoading());
-				const res = await base.sendLinkToAria2(target.data("link"), target.data("filename"), [`User-Agent:${config.$quark.api.ua.downloadLink}`, `Referer:https://${location.host}/`, `Cookie:${document.cookie}`], customDir);
+				const res = await base.sendLinkToAria2(target.data("link"), target.data("filename"), [`User-Agent:${config.$quark.api.ua.downloadLink}`, `Referer:https://${location.host}/`, `Cookie:${document.cookie}`], customDir, saveDir);
 				if (res === "success") {
 					target.removeClass("pl-btn-danger").html("发送成功啦!快去看看吧~").animate({ opacity: "0.5" }, "slow");
 				} else {
@@ -8270,10 +8343,11 @@ button.downloadSubtitle:disabled {
 				target.attr("data-processing", "true");
 				const originalHtml = target.html();
 				const customDir = base.getCustomDownloadDir("bitcomet");
+				const saveDir = target.data("savedir") || "";
 				target.find(".pl-icon").remove();
 				target.find(".pl-loading").remove();
 				target.prepend(base.createLoading());
-				const res = await base.sendLinkToBitcomet(target.data("link"), target.data("filename"), { "user_agent": config.$quark.api.ua.downloadLink, "referrer": `https://${location.host}/`, "cookie": document.cookie }, customDir);
+				const res = await base.sendLinkToBitcomet(target.data("link"), target.data("filename"), { "user_agent": config.$quark.api.ua.downloadLink, "referrer": `https://${location.host}/`, "cookie": document.cookie }, customDir, saveDir);
 				if (res === "success") {
 					target.removeClass("pl-btn-danger").html("发送成功啦!快去看看吧~").animate({ opacity: "0.5" }, "slow");
 				} else {
@@ -8288,10 +8362,11 @@ button.downloadSubtitle:disabled {
 				target.attr("data-processing", "true");
 				const originalHtml = target.html();
 				const customDir = base.getCustomDownloadDir("abdm");
+				const saveDir = target.data("savedir") || "";
 				target.find(".pl-icon").remove();
 				target.find(".pl-loading").remove();
 				target.prepend(base.createLoading());
-				const res = await base.sendLinkToABDM(target.data("link"), target.data("filename"), { "User-Agent": config.$quark.api.ua.downloadLink, "Cookie": document.cookie }, customDir);
+				const res = await base.sendLinkToABDM(target.data("link"), target.data("filename"), { "User-Agent": config.$quark.api.ua.downloadLink, "Cookie": document.cookie }, customDir, saveDir);
 				if (res === "success") {
 					target.removeClass("pl-btn-danger").html("发送成功啦!快去看看吧~").animate({ opacity: "0.5" }, "slow");
 				} else {
@@ -8423,21 +8498,120 @@ button.downloadSubtitle:disabled {
 				element.append($button);
 			})
 		},
+		updateScanStatus(done, total, currentName = "") {
+			$doc.find(".loading-popup .loading-title").html(`目录扫描中`);
+			$doc.find(".loading-popup .swal2-html-container").html(`<div>已扫描 ${done} / ${total} 个目录~</div>${currentName ? `<div>${currentName}</div>` : ""}`);
+		},
+		async getFolderFiles(folder, context = {}) {
+			const files = [];
+			const pending = [folder];
+			let done = 0;
+			const {
+				page = "home",
+				pwd_id = "",
+				headers = {}
+			} = context;
+			while (pending.length > 0) {
+				const current = pending.shift();
+				done++;
+				this.updateScanStatus(done, done + pending.length, current.file_name || current.fid || "");
+				let pageNum = 1;
+				const pageSize = 100;
+				while (true) {
+					let url;
+					if (page === "share") {
+						url = new URL(config.$quark.api.getShareList);
+						url.searchParams.set("pwd_id", pwd_id);
+						url.searchParams.set("stoken", current.stoken || folder.stoken || "");
+						url.searchParams.set("pdir_fid", current.fid);
+						if (current.share_fid_token) url.searchParams.set("fid", current.fid);
+						url.searchParams.set("_page", pageNum);
+						url.searchParams.set("_size", pageSize);
+						url.searchParams.set("_fetch_banner", "0");
+						url.searchParams.set("_fetch_share", "0");
+						url.searchParams.set("_fetch_total", "1");
+						url.searchParams.set("_sort", "file_type:asc,file_name:asc");
+					} else {
+						url = new URL(config.$quark.api.getList);
+						url.searchParams.set("pdir_fid", current.fid);
+						url.searchParams.set("_page", pageNum);
+						url.searchParams.set("_size", pageSize);
+						url.searchParams.set("_fetch_total", "1");
+						url.searchParams.set("_sort", "file_type:asc,file_name:asc");
+					}
+					const res = await base.get(url.toString(), headers);
+					if (!res || res.code !== 0 || !res.data?.list) {
+						throw new Error(res?.message || res?.msg || "list failed");
+					}
+					const list = res.data.list || [];
+					list.forEach(item => {
+							const currentPath = current.relativePath || "";
+							const nextName = base.fixFilename(item.file_name || "");
+							const nextPath = currentPath ? `${currentPath}/${nextName}` : nextName;
+							const extra = page === "share"
+								? { stoken: current.stoken || folder.stoken || "", share_fid_token: item.share_fid_token || current.share_fid_token || "", relativePath: nextPath }
+								: { relativePath: nextPath };
+							if (item.file === true) {
+								files.push({ ...item, ...extra });
+							} else {
+								pending.push({ ...item, ...extra });
+						}
+					});
+					if (list.length < pageSize) break;
+					pageNum++;
+					await base.sleep(200);
+				}
+				await base.sleep(200);
+			}
+			return files;
+		},
+		async expandSelections(selects, context = {}) {
+			const directFiles = selects.filter(item => item.file === true).map(item => ({ ...item, relativePath: item.relativePath || "" }));
+			const folders = selects.filter(item => item.file !== true).map(item => ({ ...item, relativePath: base.fixFilename(item.file_name || "") }));
+			if (folders.length === 0) return directFiles;
+			const expanded = [...directFiles];
+			for (let i = 0; i < folders.length; i++) {
+				const subFiles = await this.getFolderFiles(folders[i], context);
+				expanded.push(...subFiles);
+			}
+			const uniqueFiles = [];
+			const seen = new Set();
+			expanded.forEach(item => {
+				if (!item?.fid || seen.has(item.fid)) return;
+				seen.add(item.fid);
+				uniqueFiles.push(item);
+			});
+			return uniqueFiles;
+		},
+		mergeFileMeta(batch, items = []) {
+			const metaMap = new Map(batch.map(item => [item.fid, item]));
+			return items.map(item => {
+				const meta = metaMap.get(item.fid) || {};
+				return { ...item, ...meta, download_url: item.download_url, file_name: item.file_name, size: item.size };
+			});
+		},
 		async getLink() {
 			let selects = this.getSelectedList();
 			if (selects.length === 0) return message.error("提示：<br/>请勾选要下载的文件哦~");
-			if (selects.every(item => !item.file)) return message.error("提示：<br/>请打开文件夹后再勾选文件~");
 			if (temp.page === "home") {
+				const headers = { "Content-Type": "application/json", "Cookie": document.cookie, "User-Agent": config.$quark.api.ua.downloadLink };
 				const data = [];
 				const batchSize = 15;
 				let proc = 0;
-				selects = selects.filter(item => item.file === true)
+				try {
+					selects = await this.expandSelections(selects, { page: "home", headers });
+				} catch (error) {
+					return message.error(`提示：<br/>递归读取目录失败了~<br/>${error?.message || "刷新网页后再试试吧~"}`);
+				}
+				if (selects.length === 0) return message.error("提示：<br/>目录里没有可下载的文件哦~");
+				$doc.find(".loading-popup .loading-title").html(`链接获取中`);
+				$doc.find(".loading-popup .swal2-html-container").html(`<div>正在获取文件对应的下载链接~</div>`);
 				for (let i = 0; i < selects.length; i += batchSize) {
 					// 获取当前批次文件
 					const batch = selects.slice(i, i + batchSize);
 					const fids = batch.map(item => item.fid);
 					// 发起请求获取链接
-					const res = await base.post(config.$quark.api.getLink, { "fids": fids }, { "Content-Type": "application/json", "Cookie": document.cookie, "User-Agent": config.$quark.api.ua.downloadLink });
+					const res = await base.post(config.$quark.api.getLink, { "fids": fids }, headers);
 
 					if (!res || res.code !== 0 || !res.data) {
 						if (res.code == 31001) return message.error("提示：<br/>请先登录网盘~<br/>代码：" + res.code);
@@ -8455,9 +8629,9 @@ button.downloadSubtitle:disabled {
 					}
 
 					// 合并响应数据
-					if (res.data) {
-						data.push(...res.data);
-					}
+						if (res.data) {
+							data.push(...this.mergeFileMeta(batch, res.data));
+						}
 					// 更新处理进度
 					proc += batch.length;
 					// 更新UI显示
@@ -8466,14 +8640,15 @@ button.downloadSubtitle:disabled {
 					// 请求间隔节流
 					await base.sleep(1000);
 				}
-				temp.links = [data, {
-					isFolder: v => v.file === false,
-					getFileName: v => v.file_name,
-					getFileSize: v => v.size,
-					getFileLink: v => v.download_url,
-					convert: {
-						aria2: `--header "User-Agent:${config.$quark.api.ua.downloadLink}" --header "Referer:https://${location.host}/" --header "Cookie:${document.cookie}"`,
-						curl: `-A "${config.$quark.api.ua.downloadLink}" -e "https://${location.host}/" -b "${document.cookie}"`,
+					temp.links = [data, {
+						isFolder: v => v.file === false,
+						getFileName: v => v.file_name,
+						getFileSize: v => v.size,
+						getFileLink: v => v.download_url,
+						getFilePath: v => v.relativePath?.split("/").slice(0, -1).join("/") || "",
+						convert: {
+							aria2: `--header "User-Agent:${config.$quark.api.ua.downloadLink}" --header "Referer:https://${location.host}/" --header "Cookie:${document.cookie}"`,
+							curl: `-A "${config.$quark.api.ua.downloadLink}" -e "https://${location.host}/" -b "${document.cookie}"`,
 						bitcomet: `user_agent=${encodeURIComponent(config.$quark.api.ua.downloadLink)}&refer=${encodeURIComponent(`https://${location.host}/`)}&cookie=${encodeURIComponent(document.cookie)}`
 					},
 					tooltip: config.$quark.dom
@@ -8484,18 +8659,25 @@ button.downloadSubtitle:disabled {
 					unsafeWindow.factStat?.wa?.customStatParams?.pwd_id || // drive
 					location.pathname.match(/^\/(?:s|share)\/([a-zA-Z0-9]+)/)?.[1]; // 兜底
 				if (!pwd_id) return message.error("错误：<br/>无法提取分享 ID~");
-
+				const headers = { "Content-Type": "application/json", "Cookie": document.cookie, "User-Agent": config.$quark.api.ua.downloadLink };
 				const data = [];
 				const batchSize = 15;
 				let proc = 0;
-				selects = selects.filter(item => item.file === true)
+				try {
+					selects = await this.expandSelections(selects, { page: "share", pwd_id, headers });
+				} catch (error) {
+					return message.error(`提示：<br/>递归读取目录失败了~<br/>${error?.message || "刷新网页后再试试吧~"}`);
+				}
+				if (selects.length === 0) return message.error("提示：<br/>目录里没有可下载的文件哦~");
+				$doc.find(".loading-popup .loading-title").html(`链接获取中`);
+				$doc.find(".loading-popup .swal2-html-container").html(`<div>正在获取文件对应的下载链接~</div>`);
 				for (let i = 0; i < selects.length; i += batchSize) {
 					// 获取当前批次文件
 					const batch = selects.slice(i, i + batchSize);
 					const fids = batch.map(item => item.fid);
 					const fids_token = batch.map(item => item.share_fid_token);
 					// 发起请求获取链接
-					const res = await base.post(config.$quark.api.getLink, { "fids": fids, "fids_token": fids_token, pwd_id, "stoken": batch[0].stoken }, { "Content-Type": "application/json", "Cookie": document.cookie, "User-Agent": config.$quark.api.ua.downloadLink });
+					const res = await base.post(config.$quark.api.getLink, { "fids": fids, "fids_token": fids_token, pwd_id, "stoken": batch[0].stoken }, headers);
 
 					if (!res || res.code !== 0 || !res.data) {
 						if (res.code == 31001) return message.error("提示：<br/>请先登录网盘~<br/>代码：" + res.code);
@@ -8513,9 +8695,9 @@ button.downloadSubtitle:disabled {
 					}
 
 					// 合并响应数据
-					if (res.data) {
-						data.push(...res.data);
-					}
+						if (res.data) {
+							data.push(...this.mergeFileMeta(batch, res.data));
+						}
 					// 更新处理进度
 					proc += batch.length;
 					// 更新UI显示
@@ -8524,14 +8706,15 @@ button.downloadSubtitle:disabled {
 					// 请求间隔节流
 					await base.sleep(1000);
 				}
-				temp.links = [data, {
-					isFolder: v => v.file === false,
-					getFileName: v => v.file_name,
-					getFileSize: v => v.size,
-					getFileLink: v => v.download_url,
-					convert: {
-						aria2: `--header "User-Agent:${config.$quark.api.ua.downloadLink}" --header "Referer:https://${location.host}/" --header "Cookie:${document.cookie}"`,
-						curl: `-A "${config.$quark.api.ua.downloadLink}" -e "https://${location.host}/" -b "${document.cookie}"`,
+					temp.links = [data, {
+						isFolder: v => v.file === false,
+						getFileName: v => v.file_name,
+						getFileSize: v => v.size,
+						getFileLink: v => v.download_url,
+						getFilePath: v => v.relativePath?.split("/").slice(0, -1).join("/") || "",
+						convert: {
+							aria2: `--header "User-Agent:${config.$quark.api.ua.downloadLink}" --header "Referer:https://${location.host}/" --header "Cookie:${document.cookie}"`,
+							curl: `-A "${config.$quark.api.ua.downloadLink}" -e "https://${location.host}/" -b "${document.cookie}"`,
 						bitcomet: `user_agent=${encodeURIComponent(config.$quark.api.ua.downloadLink)}&refer=${encodeURIComponent(`https://${location.host}/`)}&cookie=${encodeURIComponent(document.cookie)}`
 					},
 					tooltip: config.$quark.dom
