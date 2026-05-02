@@ -134,6 +134,20 @@
 		mversion: GM_info.version,
 	};
 	const $doc = $(document);
+	const isMac = /Macintosh|Mac OS X/i.test(navigator.userAgent);
+	const dirPlaceholder = isMac ? "例如 /Users/账号名/Downloads/ (RPC模式不支持 ~/)" : "例如 D:\\Downloads\\，留空则默认";
+	const dirDatalist = `<datalist id="pl-dir-suggestions">
+		${isMac ? `
+		<option value="/Users/用户名/Downloads">Mac 默认下载目录</option>
+		<option value="/Users/用户名/Desktop">Mac 桌面</option>
+		` : `
+		<option value="D:\\Downloads">D盘 Downloads</option>
+		<option value="C:\\Downloads">C盘 Downloads</option>
+		<option value="E:\\Downloads">E盘 Downloads</option>
+		<option value="F:\\Downloads">F盘 Downloads</option>
+		<option value="C:\\Users\\用户名\\Downloads">系统默认下载目录</option>
+		`}
+	</datalist>`;
 	const temp = {
 		mount: $(`.${mount}`),
 		main: {},
@@ -810,12 +824,25 @@
 		 * @param {String} link - 下载链接
 		 * @param {String} filename - 文件名
 		 * @param {String} [headers] - 自定义请求头参数（可选）
+		 * @param {String} [dir] - 保存目录（可选）
 		 * @returns {String} 编码后的 curl 命令字符串
 		 */
-		convertLinkToCurl(link, filename, headers) {
+		convertLinkToCurl(link, filename, headers, dir) {
 			const terminal = base.getValue("setting_curl_terminal");
 			filename = base.fixFilename(filename);
-			return `${terminal !== "wp" ? "curl" : "curl.exe"} -L -C - "${link}" -o "${filename}"${headers ? (" " + headers) : ""}`;
+			const cmd = terminal !== "wp" ? "curl" : "curl.exe";
+			const curlCmd = `${cmd} -L -C - "${link}" -o "${filename}"${headers ? (" " + headers) : ""}`;
+			if (dir) {
+				const isWin = /Windows|Win32|Win64/i.test(navigator.userAgent);
+				const resolvedDir = base.resolveDownloadDir(dir);
+				if (isWin) {
+					const drive = resolvedDir.match(/^([a-zA-Z]:)/)?.[1] || "";
+					return `${drive ? drive + " && " : ""}cd "${resolvedDir}" && ${curlCmd}`;
+				} else {
+					return `cd "${resolvedDir}" && ${curlCmd}`;
+				}
+			}
+			return curlCmd;
 		},
 
 		/**
@@ -826,11 +853,13 @@
 		 * @param {String} link - 下载链接
 		 * @param {String} filename - 文件名
 		 * @param {String} [headers] - 自定义请求头参数（可选）
+		 * @param {String} [dir] - 保存目录（可选）
 		 * @returns {String} 编码后的 aria2c 命令字符串
 		 */
-		convertLinkToAria2(link, filename, headers) {
+		convertLinkToAria2(link, filename, headers, dir) {
 			filename = base.fixFilename(filename);
-			return `aria2c "${link}" --out "${filename}"${headers ? (" " + headers) : ""}`;
+			const resolvedDir = dir ? base.resolveDownloadDir(dir) : "";
+			return `aria2c "${link}" --out "${filename}"${resolvedDir ? ` --dir "${resolvedDir}"` : ""}${headers ? (" " + headers) : ""}`;
 		},
 
 		/**
@@ -934,8 +963,18 @@
 					token: selected.token
 				};
 				const url = `${rpc.domain}:${rpc.port}${rpc.path}`;
-				const dir = base.joinDownloadDir((customDir !== null && customDir !== undefined) ? customDir : rpc.dir, subDir);
-				const finalDir = (dir !== null && dir !== "") ? dir : undefined;
+				const dir = base.joinDownloadDir(base.resolveDownloadDir((customDir !== null && customDir !== undefined) ? customDir : rpc.dir), subDir);
+				let finalDir = (dir !== null && dir !== "") ? dir : undefined;
+				
+				if (finalDir && !base.isAbsolutePath(finalDir)) {
+					if (subDir) {
+						base.showTopTip("⚠️ 提示：未检测到绝对基础路径！<br/>为了保留文件夹结构，请先在配置中设置绝对存储路径。");
+						return "fail";
+					} else {
+						finalDir = undefined;
+					}
+				}
+
 				const data = {
 					id: new Date().getTime(),
 					jsonrpc: "2.0",
@@ -981,9 +1020,19 @@
 				};
 				const url = `${rpc.domain}:${rpc.port}${rpc.path}`;
 				const data = new URLSearchParams();
-				const dir = base.joinDownloadDir((customDir !== null && customDir !== undefined) ? customDir : rpc.dir, subDir);
+				let finalDir = base.joinDownloadDir(base.resolveDownloadDir((customDir !== null && customDir !== undefined) ? customDir : rpc.dir), subDir);
+				
+				if (finalDir && !base.isAbsolutePath(finalDir)) {
+					if (subDir) {
+						base.showTopTip("⚠️ 提示：未检测到绝对基础路径！<br/>为了保留文件夹结构，请先在配置中设置绝对存储路径。");
+						return "fail";
+					} else {
+						finalDir = "";
+					}
+				}
+
 				data.append("url", link);
-				if (dir !== null && dir !== "") data.append("save_path", dir);
+				if (finalDir !== null && finalDir !== "") data.append("save_path", finalDir);
 				data.append("file_name", filename);
 				data.append("connection", 200);
 				if (headers && base.isType(headers) === "object") {
@@ -1041,8 +1090,18 @@
 					"name": filename
 				}
 				if (headers["Referer"]) data["downloadSource"]["downloadPage"] = headers["Referer"];
-				const dir = base.joinDownloadDir((customDir !== null && customDir !== undefined) ? customDir : rpc.dir, subDir);
-				if (dir) data.folder = dir;
+				let finalDir = base.joinDownloadDir(base.resolveDownloadDir((customDir !== null && customDir !== undefined) ? customDir : rpc.dir), subDir);
+				
+				if (finalDir && !base.isAbsolutePath(finalDir)) {
+					if (subDir) {
+						base.showTopTip("⚠️ 提示：未检测到绝对基础路径！<br/>为了保留文件夹结构，请先在配置中设置绝对存储路径。");
+						return "fail";
+					} else {
+						finalDir = "";
+					}
+				}
+
+				if (finalDir) data.folder = finalDir;
 				try {
 					const res = await base.post(url, data, { "Content-Type": "text/plain;charset=UTF-8" }, "text", false);
 					if (res === "OK") return "success";
@@ -2411,8 +2470,9 @@
 				</label>
 				<label class="pl-setting-item">
 					<div>存储路径</div>
-					<input type="text" autocomplete="off" placeholder="文件下载后保存路径，例如 D:\\Downloads\\，留空则默认" class="swal2-input pl-input listener-rpc-input" data-type="aria2.dir" value="">
-				</label>`;
+					<input type="text" autocomplete="off" placeholder="${dirPlaceholder}" class="swal2-input pl-input listener-rpc-input" data-type="aria2.dir" value="" list="pl-dir-suggestions">
+				</label>
+				${dirDatalist}`;
 			Swal.fire({
 				...temp.swalDefault,
 				title: "Aria2 服务设置",
@@ -2487,8 +2547,9 @@
 				</label>
 				<label class="pl-setting-item">
 					<div>存储路径</div>
-					<input type="text" autocomplete="off" placeholder="文件下载后保存路径，例如 D:\\Downloads\\，留空则默认" class="swal2-input pl-input listener-rpc-input" data-type="bitcomet.dir" value="">
-				</label>`;
+					<input type="text" autocomplete="off" placeholder="文件下载后保存路径，例如 D:\\Downloads\\，留空则默认" class="swal2-input pl-input listener-rpc-input" data-type="bitcomet.dir" value="" list="pl-dir-suggestions">
+				</label>
+				${dirDatalist}`;
 			Swal.fire({
 				...temp.swalDefault,
 				title: "比特彗星服务设置",
@@ -2552,8 +2613,9 @@
 				</label>
 				<label class="pl-setting-item">
 					<div>存储路径</div>
-					<input type="text" autocomplete="off" placeholder="文件下载后保存路径，例如 D:\\Downloads\\，留空则默认" class="swal2-input pl-input listener-rpc-input" data-type="abdm.dir" value="">
-				</label>`;
+					<input type="text" autocomplete="off" placeholder="文件下载后保存路径，例如 D:\\Downloads\\，留空则默认" class="swal2-input pl-input listener-rpc-input" data-type="abdm.dir" value="" list="pl-dir-suggestions">
+				</label>
+				${dirDatalist}`;
 			Swal.fire({
 				...temp.swalDefault,
 				title: "ABDM 服务设置",
@@ -3469,8 +3531,9 @@
 					content.find(".pl-extra").append(`<div class="pl-extra-row pl-download-dir-row">
 						<div class="pl-download-dir" style="margin-bottom:8px;text-align:left;">
 							<div style="margin-bottom:6px;font-size:13px;font-weight:600;">下载目录</div>
-							<input type="text" class="swal2-input pl-input listener-download-dir-input" data-type="aria2" placeholder="直接指定发送到下载器时的保存目录，留空则使用当前 RPC 默认目录" value="${temp.downloadDir.aria2 || ""}" style="width:100%;margin:0;">
+							<input type="text" class="swal2-input pl-input listener-download-dir-input" data-type="aria2" placeholder="直接指定发送到下载器时的保存目录，留空则使用当前下载器配置" value="${temp.downloadDir.aria2 || ""}" style="width:100%;margin:0;" list="pl-dir-suggestions">
 						</div>
+						${dirDatalist}
 					</div>`);
 					content.find(".pl-extra").append(`<div class="pl-extra-row pl-extra-actions aria2-actions"></div>`);
 					content.find(".pl-extra .aria2-actions").append(`<button class="pl-btn-primary pl-btn-warning aria2 listener-open-aria2-setting listener-tip" data-title="${rpc.domain + ":" + rpc.port + rpc.path}" data-back-to-downloads="true"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-gear"/></svg>修改服务参数</button>`);
@@ -3491,8 +3554,9 @@
 					content.find(".pl-extra").append(`<div class="pl-extra-row pl-download-dir-row">
 						<div class="pl-download-dir" style="margin-bottom:8px;text-align:left;">
 							<div style="margin-bottom:6px;font-size:13px;font-weight:600;">下载目录</div>
-							<input type="text" class="swal2-input pl-input listener-download-dir-input" data-type="bitcomet" placeholder="直接指定发送到下载器时的保存目录，留空则使用当前 RPC 默认目录" value="${temp.downloadDir.bitcomet || ""}" style="width:100%;margin:0;">
+								<input type="text" class="swal2-input pl-input listener-download-dir-input" data-type="bitcomet" placeholder="直接指定发送到下载器时的保存目录，留空则使用当前下载器配置" value="${temp.downloadDir.bitcomet || ""}" style="width:100%;margin:0;" list="pl-dir-suggestions">
 						</div>
+						${dirDatalist}
 					</div>`);
 					content.find(".pl-extra").append(`<div class="pl-extra-row pl-extra-actions bitcomet-actions"></div>`);
 					content.find(".pl-extra .bitcomet-actions").append(`<button class="pl-btn-primary pl-btn-warning bitcomet listener-open-bitcomet-setting listener-tip" data-title="${rpc.domain + ":" + rpc.port + rpc.path}" data-back-to-downloads="true"><svg class="pl-icon"><use xlink:href="#pl-icon-fa-gear"/></svg>修改服务参数</button>`);
@@ -5111,8 +5175,54 @@ button.downloadSubtitle:disabled {
 			const dir = String(value).trim();
 			temp.downloadDir[mode] = dir;
 			return dir;
+		},
+
+		resolveDownloadDir(dir = "") {
+			let value = String(dir || "").trim();
+			if (!value) return "";
+			// 统一路径分隔符，去掉多余的斜杠
+			value = value.replace(/\\+/g, "/").replace(/\/+$/g, "");
+			// 检测是否为 Windows
+			const isWin = /Windows|Win32|Win64/i.test(navigator.userAgent);
+			if (isWin) {
+				value = value.replace(/\//g, "\\");
+			}
+			return value;
+		},
+
+		/**
+		 * 检查路径是否为绝对路径
+		 * @author LinkSwift
+		 * @param {String} path - 路径字符串
+		 * @returns {Boolean} 是否为绝对路径
+		 */
+		isAbsolutePath(path) {
+			if (!path) return false;
+			return /^(?:[a-zA-Z]:[\\/]|\\{2}|\/)/.test(path);
+		},
+
+		/**
+		 * 显示不关闭当前 Swal 的顶部提示
+		 * @author LinkSwift
+		 * @param {String} text - 提示内容
+		 */
+		showTopTip(text) {
+			if (window.linkSwiftTopTipShown) return;
+			window.linkSwiftTopTipShown = true;
+			const tip = document.createElement("div");
+			tip.innerHTML = text;
+			tip.style.cssText = "position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:999999;background:var(--pl-c-20,#f5f5f5);color:var(--pl-c-8,#333);border:1px solid var(--pl-c-10,#ccc);padding:12px 24px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.15);font-size:14px;pointer-events:none;text-align:center;font-weight:bold;";
+			document.body.appendChild(tip);
+			setTimeout(() => {
+				tip.style.transition = "opacity 0.5s";
+				tip.style.opacity = "0";
+				setTimeout(() => tip.remove(), 500);
+				window.linkSwiftTopTipShown = false;
+			}, 3000);
 		}
 	};
+
+
 
 	/**
 	 * 百度网盘
